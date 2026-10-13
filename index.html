@@ -2,7 +2,7 @@
 <html>
 
 <head>
-  <title>TS Token Saver</title>
+  <title>LLM Code Token Saver</title>
   <style>
     body {
       font-family: sans-serif;
@@ -13,47 +13,230 @@
 
     textarea {
       width: 100%;
-      height: 200px;
+      height: 220px;
       background: #2d2d2d;
       color: #85c46c;
       border: 1px solid #444;
+      padding: 10px;
+      box-sizing: border-box;
+      font-family: monospace;
     }
 
-    button {
-      padding: 10px 20px;
+    button,
+    select {
+      padding: 10px 14px;
+      margin-top: 10px;
       background: #007acc;
       color: white;
       border: none;
       cursor: pointer;
-      margin-top: 10px;
+    }
+
+    select {
+      background: #2d2d2d;
+      border: 1px solid #444;
     }
 
     button:hover {
       background: #005f9e;
     }
+
+    .row {
+      margin-bottom: 12px;
+    }
+
+    .warning {
+      color: #ffb703;
+      font-size: 12px;
+    }
+
+    .stats {
+      color: #aaa;
+      font-size: 13px;
+      margin-top: 8px;
+    }
   </style>
 </head>
 
 <body>
-  <h2>TypeScript LLM Minifier</h2>
-  <p>Paste code below to strip comments and extra whitespace (Preserves variable names).</p>
+  <h2>LLM Code Minifier</h2>
 
-  <textarea id="input" placeholder="Paste your TS code here..."></textarea>
+  <p class="warning">
+    ⚠ Best-effort minifier. Good for sending code to LLMs. Do not use for production builds.
+  </p>
+
+  <p>
+    Paste code below to strip comments and reduce whitespace while preserving variable names.
+  </p>
+
+  <div class="row">
+    <label for="mode-selector">Choose Language/Framework:</label>
+    <select id="mode-selector">
+      <option value="typescript">TypeScript</option>
+      <option value="tsx">TSX</option>
+      <option value="dart">Dart</option>
+      <option value="flutter">Flutter</option>
+    </select>
+  </div>
+
+  <textarea id="input" placeholder="Paste your code here..."></textarea>
   <br>
-  <button onclick="minify()">Minify for LLM</button>
 
-  <h3>Output (Copy this to Chat)</h3>
+  <button onclick="minify()">Minify for LLM</button>
+  <button onclick="copyOutput()">Copy Output</button>
+
+  <h3>Output</h3>
   <textarea id="output" readonly></textarea>
 
+  <div id="stats" class="stats"></div>
+
   <script>
+    const modeSelector = document.getElementById("mode-selector");
+    const input = document.getElementById("input");
+    const output = document.getElementById("output");
+    const stats = document.getElementById("stats");
+
+    modeSelector.addEventListener("change", () => {
+      const mode = modeSelector.value;
+
+      if (mode === "dart") {
+        input.placeholder = "Paste your Dart code here...";
+      } else if (mode === "flutter") {
+        input.placeholder = "Paste your Flutter widget/code here...";
+      } else if (mode === "tsx") {
+        input.placeholder = "Paste your TSX code here...";
+      } else {
+        input.placeholder = "Paste your TypeScript code here...";
+      }
+    });
+
     function minify() {
-      let code = document.getElementById('input').value;
+      const mode = modeSelector.value;
+      let code = input.value;
 
-      code = code.replace(/\/\*[\s\S]*?\*\//g, "");
-      code = code.replace(/\/\/.*/g, "");
-      code = code.replace(/\s+/g, " ").trim();
+      code = stripComments(code, mode);
 
-      document.getElementById('output').value = code;
+      // TSX is the only mode that keeps line breaks.
+      // Dart and Flutter are compacted into one line.
+      if (mode === "tsx") {
+        code = readableMinify(code);
+      } else {
+        code = compactMinify(code);
+      }
+
+      output.value = code;
+
+      const originalChars = input.value.length;
+      const minifiedChars = code.length;
+      const savedChars = originalChars - minifiedChars;
+      const estTokens = Math.ceil(minifiedChars / 4);
+
+      stats.textContent =
+        `Original: ${originalChars} chars | Output: ${minifiedChars} chars | Saved: ${savedChars} chars | Estimated tokens: ${estTokens}`;
+
+      copyOutput(false);
+    }
+
+    function stripComments(code, mode) {
+      // Remove TSX/JSX comments like {/* comment */}
+      if (mode === "tsx") {
+        code = code.replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, "");
+      }
+
+      // Dart, Flutter, TS, and TSX all support // and /* */ comments.
+      // This scanner avoids removing comments inside normal strings.
+      let result = "";
+      let i = 0;
+
+      let inSingleQuote = false;
+      let inDoubleQuote = false;
+      let inBacktick = false;
+
+      while (i < code.length) {
+        const char = code[i];
+        const next = code[i + 1];
+        const prev = code[i - 1];
+
+        if (!inDoubleQuote && !inBacktick && char === "'" && prev !== "\\") {
+          inSingleQuote = !inSingleQuote;
+          result += char;
+          i++;
+          continue;
+        }
+
+        if (!inSingleQuote && !inBacktick && char === '"' && prev !== "\\") {
+          inDoubleQuote = !inDoubleQuote;
+          result += char;
+          i++;
+          continue;
+        }
+
+        if (!inSingleQuote && !inDoubleQuote && char === "`" && prev !== "\\") {
+          inBacktick = !inBacktick;
+          result += char;
+          i++;
+          continue;
+        }
+
+        const insideString = inSingleQuote || inDoubleQuote || inBacktick;
+
+        if (!insideString && char === "/" && next === "/") {
+          while (i < code.length && code[i] !== "\n") {
+            i++;
+          }
+          continue;
+        }
+
+        if (!insideString && char === "/" && next === "*") {
+          i += 2;
+          while (i < code.length && !(code[i] === "*" && code[i + 1] === "/")) {
+            i++;
+          }
+          i += 2;
+          continue;
+        }
+
+        result += char;
+        i++;
+      }
+
+      return result;
+    }
+
+    function compactMinify(code) {
+      return code
+        .replace(/\s+/g, " ")
+        .replace(/\s*([{}()[\];,:=+\-*/<>])\s*/g, "$1")
+        .trim();
+    }
+
+    function readableMinify(code) {
+      return code
+        .replace(/[ \t]+/g, " ")
+        .replace(/\n\s*\n+/g, "\n")
+        .split("\n")
+        .map(line => line.trim())
+        .filter(Boolean)
+        .join("\n")
+        .trim();
+    }
+
+    async function copyOutput(showAlert = true) {
+      if (!output.value) return;
+
+      try {
+        await navigator.clipboard.writeText(output.value);
+
+        if (showAlert) {
+          alert("Copied to clipboard!");
+        }
+      } catch (error) {
+        console.warn("Clipboard copy failed:", error);
+
+        if (showAlert) {
+          alert("Could not copy automatically. Please copy manually.");
+        }
+      }
     }
   </script>
 </body>
