@@ -75,6 +75,7 @@
       <option value="typescript">TypeScript</option>
       <option value="tsx">TSX</option>
       <option value="dart">Dart</option>
+      <option value="rust">Rust</option>
       <option value="flutter">Flutter</option>
     </select>
   </div>
@@ -105,6 +106,8 @@
         input.placeholder = "Paste your Flutter widget/code here...";
       } else if (mode === "tsx") {
         input.placeholder = "Paste your TSX code here...";
+      } else if (mode === "rust") {
+        input.placeholder = "Paste your Rust code here...";
       } else {
         input.placeholder = "Paste your TypeScript code here...";
       }
